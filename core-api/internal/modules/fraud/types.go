@@ -1,0 +1,39 @@
+package fraud
+
+type Transaction struct {
+	ID          string             `json:"id"`
+	Transaction TransactionDetails `json:"transaction"`
+	Customer    Customer           `json:"customer"`
+	Merchant    Merchant           `json:"merchant"`
+	Terminal    Terminal           `json:"terminal"`
+	LastTx      *LastTransaction   `json:"last_transaction"`
+}
+
+type TransactionDetails struct {
+	Amount      float64 `json:"amount"`
+	Installments float64 `json:"installments"`
+	RequestedAt string  `json:"requested_at"`
+}
+
+type Customer struct {
+	AvgAmount      float64  `json:"avg_amount"`
+	TxCount24h     int      `json:"tx_count_24h"`
+	KnownMerchants []string `json:"known_merchants"`
+}
+
+type Merchant struct {
+	ID        string  `json:"id"`
+	MCC       string  `json:"mcc"`
+	AvgAmount float64 `json:"avg_amount"`
+}
+
+type Terminal struct {
+	IsOnline    bool    `json:"is_online"`
+	CardPresent bool    `json:"card_present"`
+	KmFromHome  float64 `json:"km_from_home"`
+}
+
+type LastTransaction struct {
+	Timestamp     string  `json:"timestamp"`
+	KmFromCurrent float64 `json:"km_from_current"`
+}
