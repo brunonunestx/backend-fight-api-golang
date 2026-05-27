@@ -3,14 +3,16 @@ package fraud
 import (
 	"encoding/json"
 	"net/http"
+
+	"core-api/pkg"
 )
 
 type Handler struct {
 	service *Service
 }
 
-func NewHandler() *Handler {
-	service := NewService()
+func NewHandler(ivfIndex pkg.IVFIndex) *Handler {
+	service := NewService(ivfIndex)
 	return &Handler{service: service}
 }
 
@@ -21,7 +23,8 @@ func (h *Handler) DetectFraud(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.service.DetectFraud(transaction)
+	response := h.service.DetectFraud(transaction)
 
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }

@@ -7,19 +7,41 @@ import (
 	"core-api/pkg"
 )
 
-type Service struct{}
-
 const VECTOR_SIZE = 14
 
-func NewService() *Service {
-	return &Service{}
+type Service struct {
+	ivfIndex pkg.IVFIndex
 }
 
-func (s *Service) DetectFraud(transaction Transaction) {
+type DetectionResult struct {
+	Approved bool    `json:"approved"`
+	Score    float64 `json:"fraud_score"`
+}
+
+func NewService(ivfIndex pkg.IVFIndex) *Service {
+	return &Service{ivfIndex: ivfIndex}
+}
+
+func (s *Service) DetectFraud(transaction Transaction) DetectionResult {
 	fmt.Printf("Detecting fraud for transaction: %+v\n", transaction)
 
 	vector := BuildVector(transaction)
 	fmt.Printf("Built feature vector: %+v\n", vector)
+
+	clusterID := pkg.AssignToCluster(vector, s.ivfIndex.Centroids)
+	fmt.Printf("Assigned to cluster ID: %d\n", clusterID)
+
+	records := s.ivfIndex.Clusters[clusterID]
+	fmt.Printf("Found %d records in the same cluster\n", len(records))
+
+	knn := pkg.FindKNN(vector, records, 5)
+
+	isFraud, score := CalculateFraudScore(knn)
+
+	return DetectionResult{
+		Approved: !isFraud,
+		Score:    score,
+	}
 }
 
 func BuildVector(transaction Transaction) [VECTOR_SIZE]uint8 {
@@ -68,13 +90,15 @@ func BuildVector(transaction Transaction) [VECTOR_SIZE]uint8 {
 		pkg.Clamp01(merchant.AvgAmount / normalization["max_merchant_avg_amount"]),
 	}
 
-	return QuantitizeVector(vector)
+	return pkg.QuantitizeVector(vector)
 }
 
-func QuantitizeVector(vector []float64) [VECTOR_SIZE]uint8 {
-	var quantized [VECTOR_SIZE]uint8
-	for i, v := range vector {
-		quantized[i] = uint8(v * 127)
+func CalculateFraudScore(knn [5]pkg.Record) (bool, float64) {
+	fraudCount := 0
+	for _, record := range knn {
+		if record.Label == 1 {
+			fraudCount++
+		}
 	}
-	return quantized
+	return fraudCount > 2, float64(fraudCount) / float64(len(knn))
 }

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"core-api/internal/modules/fraud"
+	"core-api/pkg"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
@@ -14,7 +16,14 @@ func (s *Server) RegisterRoutes() http.Handler {
 		w.Write([]byte("OK"))
 	})
 
-	fraudHandler := fraud.NewHandler()
+	fmt.Println("Reading IVF file")
+	ivfIndex, err := pkg.ReadIVF("../resources/index.ivf")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Loaded IVF index with %d centroids and %d clusters\n", len(ivfIndex.Centroids), len(ivfIndex.Clusters))
+	fraudHandler := fraud.NewHandler(ivfIndex)
 	mux.HandleFunc("/fraud-score", fraudHandler.DetectFraud)
 
 	return mux
