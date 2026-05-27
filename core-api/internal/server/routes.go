@@ -16,14 +16,15 @@ func (s *Server) RegisterRoutes() http.Handler {
 		w.Write([]byte("OK"))
 	})
 
-	fmt.Println("Reading IVF file")
-	ivfIndex, cleanup, err := pkg.ReadIVF("../resources/index.ivf")
+	fmt.Println("Reading HKM index file")
+	ivfIndex, cleanup, err := pkg.ReadHKM("../resources/index.ivf")
 	if err != nil {
 		panic(err)
 	}
 	_ = cleanup
 
-	fmt.Printf("Loaded IVF index with %d centroids and %d clusters\n", len(ivfIndex.Centroids), len(ivfIndex.Clusters))
+	fmt.Printf("Loaded HKM tree: depth=%d branch=%d nodes=%d buckets=%d\n",
+		ivfIndex.Depth, ivfIndex.Branch, len(ivfIndex.Centroids), len(ivfIndex.Buckets))
 	fraudHandler := fraud.NewHandler(ivfIndex)
 	mux.HandleFunc("/fraud-score", fraudHandler.DetectFraud)
 

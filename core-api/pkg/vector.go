@@ -2,7 +2,7 @@ package pkg
 
 const VECTOR_SIZE = 14
 
-func QuantitizeVector(vector []float64) [VECTOR_SIZE]uint8 {
+func QuantitizeVector(vector [VECTOR_SIZE]float64) [VECTOR_SIZE]uint8 {
 	var quantized [VECTOR_SIZE]uint8
 	for i, v := range vector {
 		quantized[i] = uint8(v * 127)

@@ -1,7 +1,6 @@
 package fraud
 
 import (
-	"fmt"
 	"slices"
 
 	"core-api/pkg"
@@ -10,7 +9,7 @@ import (
 const VECTOR_SIZE = 14
 
 type Service struct {
-	ivfIndex pkg.IVFIndex
+	ivfIndex pkg.HKMTree
 }
 
 type DetectionResult struct {
@@ -18,30 +17,24 @@ type DetectionResult struct {
 	Score    float64 `json:"fraud_score"`
 }
 
-func NewService(ivfIndex pkg.IVFIndex) *Service {
+func NewService(ivfIndex pkg.HKMTree) *Service {
 	return &Service{ivfIndex: ivfIndex}
 }
 
-func (s *Service) DetectFraud(transaction Transaction) DetectionResult {
-	fmt.Printf("Detecting fraud for transaction: %+v\n", transaction)
+func (s *Service) DetectFraudRaw(body []byte) int {
+	vector := FastBuildVector(body)
 
-	vector := BuildVector(transaction)
-	fmt.Printf("Built feature vector: %+v\n", vector)
+	bucketIDs := pkg.AssignToClusterBeam(vector, s.ivfIndex, 2)
 
-	clusterID := pkg.AssignToCluster(vector, s.ivfIndex.Centroids)
-	fmt.Printf("Assigned to cluster ID: %d\n", clusterID)
+	knn := pkg.FindKNN(vector, 5, s.ivfIndex.Buckets[bucketIDs[0]], s.ivfIndex.Buckets[bucketIDs[1]])
 
-	records := s.ivfIndex.Clusters[clusterID]
-	fmt.Printf("Found %d records in the same cluster\n", len(records))
-
-	knn := pkg.FindKNN(vector, records, 5)
-
-	isFraud, score := CalculateFraudScore(knn)
-
-	return DetectionResult{
-		Approved: !isFraud,
-		Score:    score,
+	fraudCount := 0
+	for _, r := range knn {
+		if r.Label == 1 {
+			fraudCount++
+		}
 	}
+	return fraudCount
 }
 
 func BuildVector(transaction Transaction) [VECTOR_SIZE]uint8 {
@@ -69,19 +62,23 @@ func BuildVector(transaction Transaction) [VECTOR_SIZE]uint8 {
 		unknown_merchant = 1.0
 	}
 
+	txTime := pkg.ParseTimestamp(tx.RequestedAt)
+
 	if last_tx != nil {
-		minutes_since_last_tx = pkg.CalcMinutesBetween(tx.RequestedAt, last_tx.Timestamp) / normalization["max_minutes"]
+		lastTxTime := pkg.ParseTimestamp(last_tx.Timestamp)
+		minutes_since_last_tx = pkg.CalcMinutesBetween(txTime, lastTxTime) / normalization["max_minutes"]
 		km_from_current = last_tx.KmFromCurrent / normalization["max_km"]
 	}
 
-	vector := []float64{
+	vector := [VECTOR_SIZE]float64{
 		pkg.Clamp01(tx.Amount / normalization["max_amount"]),
 		pkg.Clamp01(tx.Installments / normalization["max_installments"]),
 		pkg.Clamp01(tx.Amount / customer.AvgAmount / normalization["amount_vs_avg_ratio"]),
-		float64(pkg.GetHourOfDay(tx.RequestedAt)) / 24.0,
-		float64(pkg.GetDayOfWeek(tx.RequestedAt)) / 6.0,
+		float64(pkg.GetHourOfDay(txTime)) / 23.0,
+		float64(pkg.GetDayOfWeek(txTime)) / 6.0,
 		minutes_since_last_tx,
 		pkg.Clamp01(km_from_current),
+		pkg.Clamp01(terminal.KmFromHome / normalization["max_km"]),
 		pkg.Clamp01(float64(customer.TxCount24h) / normalization["max_tx_count_24h"]),
 		is_online,
 		card_present,
