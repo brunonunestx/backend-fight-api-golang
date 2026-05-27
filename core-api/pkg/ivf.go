@@ -1,9 +1,9 @@
 package pkg
 
 import (
-	"bufio"
 	"encoding/binary"
 	"os"
+	"syscall"
 )
 
 type Centroid [VECTOR_SIZE]uint8
@@ -13,52 +13,59 @@ type IVFIndex struct {
 	Clusters  map[uint32][]Record
 }
 
-func ReadIVF(path string) (IVFIndex, error) {
+func ReadIVF(path string) (IVFIndex, func(), error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return IVFIndex{}, err
+		return IVFIndex{}, nil, err
 	}
 	defer f.Close()
 
-	r := bufio.NewReader(f)
-
-	var nCentroids, nRecords uint32
-
-	if err := binary.Read(r, binary.LittleEndian, &nCentroids); err != nil {
-		return IVFIndex{}, err
+	fi, err := f.Stat()
+	if err != nil {
+		return IVFIndex{}, nil, err
 	}
-	if err := binary.Read(r, binary.LittleEndian, &nRecords); err != nil {
-		return IVFIndex{}, err
+
+	data, err := syscall.Mmap(
+		int(f.Fd()), 0, int(fi.Size()),
+		syscall.PROT_READ, syscall.MAP_SHARED,
+	)
+	if err != nil {
+		return IVFIndex{}, nil, err
 	}
+
+	cleanup := func() { syscall.Munmap(data) }
+
+	pos := 0
+	nCentroids := binary.LittleEndian.Uint32(data[pos:])
+	pos += 4
 
 	centroids := make([]Centroid, nCentroids)
 	for i := range centroids {
-		if err := binary.Read(r, binary.LittleEndian, &centroids[i]); err != nil {
-			return IVFIndex{}, err
-		}
+		copy(centroids[i][:], data[pos:pos+VECTOR_SIZE])
+		pos += VECTOR_SIZE
 	}
 
-	clusters := make(map[uint32][]Record)
-	for range nRecords {
-		var record Record
-		if err := binary.Read(r, binary.LittleEndian, &record.ID); err != nil {
-			return IVFIndex{}, err
-		}
-		if err := binary.Read(r, binary.LittleEndian, &record.Vector); err != nil {
-			return IVFIndex{}, err
-		}
-		if err := binary.Read(r, binary.LittleEndian, &record.Label); err != nil {
-			return IVFIndex{}, err
-		}
+	nClusters := binary.LittleEndian.Uint32(data[pos:])
+	pos += 4
 
-		clusterID := AssignToCluster(record.Vector, centroids)
-		clusters[clusterID] = append(clusters[clusterID], record)
+	clusters := make(map[uint32][]Record, nClusters)
+	for i := range nClusters {
+		clusterSize := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		records := make([]Record, clusterSize)
+		for j := range records {
+			records[j].ID = binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+			copy(records[j].Vector[:], data[pos:pos+VECTOR_SIZE])
+			pos += VECTOR_SIZE
+			records[j].Label = data[pos]
+			pos++
+		}
+		clusters[i] = records
 	}
 
-	return IVFIndex{
-		Centroids: centroids,
-		Clusters:  clusters,
-	}, nil
+	return IVFIndex{Centroids: centroids, Clusters: clusters}, cleanup, nil
 }
 
 func AssignToCluster(vector [VECTOR_SIZE]uint8, centroids []Centroid) uint32 {

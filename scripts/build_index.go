@@ -24,7 +24,7 @@ type Centroid [VECTOR_SIZE]uint8
 
 type IVFIndex struct {
 	Centroids []Centroid
-	Records   []Record
+	Buckets   [][]Record
 }
 
 const (
@@ -73,16 +73,17 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("Built IVF index with %d centroids and %d records\n", len(index.Centroids), len(index.Records))
+	total := 0
+	for _, b := range index.Buckets {
+		total += len(b)
+	}
+	fmt.Printf("Built IVF index with %d centroids, %d clusters, %d records\n", len(index.Centroids), len(index.Buckets), total)
 }
 
 func WriteIVF(f *os.File, index IVFIndex) error {
 	w := bufio.NewWriter(f)
 
 	if err := binary.Write(w, binary.LittleEndian, uint32(len(index.Centroids))); err != nil {
-		return err
-	}
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(index.Records))); err != nil {
 		return err
 	}
 
@@ -92,15 +93,24 @@ func WriteIVF(f *os.File, index IVFIndex) error {
 		}
 	}
 
-	for _, r := range index.Records {
-		if err := binary.Write(w, binary.LittleEndian, r.ID); err != nil {
+	if err := binary.Write(w, binary.LittleEndian, uint32(len(index.Buckets))); err != nil {
+		return err
+	}
+
+	for _, bucket := range index.Buckets {
+		if err := binary.Write(w, binary.LittleEndian, uint32(len(bucket))); err != nil {
 			return err
 		}
-		if err := binary.Write(w, binary.LittleEndian, r.Vector); err != nil {
-			return err
-		}
-		if err := binary.Write(w, binary.LittleEndian, r.Label); err != nil {
-			return err
+		for _, r := range bucket {
+			if err := binary.Write(w, binary.LittleEndian, r.ID); err != nil {
+				return err
+			}
+			if err := binary.Write(w, binary.LittleEndian, r.Vector); err != nil {
+				return err
+			}
+			if err := binary.Write(w, binary.LittleEndian, r.Label); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -109,32 +119,27 @@ func WriteIVF(f *os.File, index IVFIndex) error {
 
 func BuildIVF(records []Record, nClusters int) IVFIndex {
 	centroids := make([]Centroid, nClusters)
-
 	for i := 0; i < nClusters; i++ {
 		centroids[i] = records[i].Vector
 	}
 
-	clusters := make([][]Record, nClusters)
-
+	buckets := make([][]Record, nClusters)
 	for _, record := range records {
 		bestCluster := 0
 		bestDist := uint32(math.MaxUint32)
-
 		for i, centroid := range centroids {
 			dist := CalcManhattanDistance(record.Vector, centroid)
-
 			if dist < bestDist {
 				bestDist = dist
 				bestCluster = i
 			}
 		}
-
-		clusters[bestCluster] = append(clusters[bestCluster], record)
+		buckets[bestCluster] = append(buckets[bestCluster], record)
 	}
 
 	return IVFIndex{
 		Centroids: centroids,
-		Records:   records,
+		Buckets:   buckets,
 	}
 }
 
