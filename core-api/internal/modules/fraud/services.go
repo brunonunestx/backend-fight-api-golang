@@ -41,7 +41,7 @@ func (s *Service) DetectFraudRaw(body []byte) DetectionResult {
 
 	score := float64(fraudCount) / float64(kNeighbors)
 	return DetectionResult{
-		Approved: score < 0.5,
+		Approved: score < 0.6,
 		Score:    score,
 	}
 }
