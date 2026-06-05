@@ -18,7 +18,7 @@ services:
           memory: "20MB"
 
   api1:
-    image: brunont1211/golangbf2:latest 
+    image: brunont1211/golangbf3:latest 
     expose:
       - "8080"
     healthcheck:
@@ -33,7 +33,7 @@ services:
           memory: "165MB"
 
   api2:
-    image: brunont1211/golangbf2:latest 
+    image: brunont1211/golangbf3:latest 
     expose:
       - "8080"
     healthcheck:
