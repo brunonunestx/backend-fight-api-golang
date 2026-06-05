@@ -3,6 +3,7 @@ package fraud
 import (
 	"bytes"
 	"strconv"
+	"unsafe"
 
 	"core-api/pkg"
 )
@@ -49,7 +50,7 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 	cardPresent := jsonBool(body, patCardPresent)
 	kmFromHome := jsonFloat(body, patKmFromHome)
 
-	txTime := pkg.ParseTimestamp(string(requestedAt))
+	txTime := pkg.ParseTimestamp(requestedAt)
 
 	minutesSinceLastTx := -1.0
 	kmFromCurrent := -1.0
@@ -57,7 +58,7 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 	if lastTxStart >= 0 && lastTxStart < len(body) && body[lastTxStart] == '{' {
 		lastTx := body[lastTxStart:]
 		lastTimestamp := jsonStringBytes(lastTx, patTimestamp)
-		lastTxTime := pkg.ParseTimestamp(string(lastTimestamp))
+		lastTxTime := pkg.ParseTimestamp(lastTimestamp)
 		minutesSinceLastTx = pkg.Clamp01(pkg.CalcMinutesBetween(lastTxTime, txTime) / normalization["max_minutes"])
 		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, patKmFromCurrent) / normalization["max_km"])
 	}
@@ -96,7 +97,7 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 }
 
 func mccRisk(mcc []byte) float64 {
-	if v, ok := mccRiskScores[string(mcc)]; ok {
+	if v, ok := mccRiskScores[unsafe.String(unsafe.SliceData(mcc), len(mcc))]; ok {
 		return v
 	}
 	return 0.5

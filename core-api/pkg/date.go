@@ -2,9 +2,30 @@ package pkg
 
 import "time"
 
-func ParseTimestamp(s string) time.Time {
-	t, _ := time.Parse(time.RFC3339, s)
-	return t
+func ParseTimestamp(b []byte) time.Time {
+	if len(b) < 20 {
+		return time.Time{}
+	}
+	year := int(b[0]-'0')*1000 + int(b[1]-'0')*100 + int(b[2]-'0')*10 + int(b[3]-'0')
+	month := int(b[5]-'0')*10 + int(b[6]-'0')
+	day := int(b[8]-'0')*10 + int(b[9]-'0')
+	hour := int(b[11]-'0')*10 + int(b[12]-'0')
+	min := int(b[14]-'0')*10 + int(b[15]-'0')
+	sec := int(b[17]-'0')*10 + int(b[18]-'0')
+
+	if b[19] != 'Z' && len(b) >= 25 {
+		offHour := int(b[20]-'0')*10 + int(b[21]-'0')
+		offMin := int(b[23]-'0')*10 + int(b[24]-'0')
+		if b[19] == '+' {
+			min -= offMin
+			hour -= offHour
+		} else {
+			min += offMin
+			hour += offHour
+		}
+	}
+
+	return time.Date(year, time.Month(month), day, hour, min, sec, 0, time.UTC)
 }
 
 func GetHourOfDay(t time.Time) int {
@@ -12,7 +33,6 @@ func GetHourOfDay(t time.Time) int {
 }
 
 func GetDayOfWeek(t time.Time) int {
-	// Rule: Monday=0 ... Sunday=6. Go's Weekday(): Sunday=0, Monday=1 ... Saturday=6.
 	return (int(t.UTC().Weekday()) + 6) % 7
 }
 
