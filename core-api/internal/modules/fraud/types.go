@@ -10,9 +10,9 @@ type Transaction struct {
 }
 
 type TransactionDetails struct {
-	Amount      float64 `json:"amount"`
+	Amount       float64 `json:"amount"`
 	Installments float64 `json:"installments"`
-	RequestedAt string  `json:"requested_at"`
+	RequestedAt  string  `json:"requested_at"`
 }
 
 type Customer struct {
@@ -36,4 +36,9 @@ type Terminal struct {
 type LastTransaction struct {
 	Timestamp     string  `json:"timestamp"`
 	KmFromCurrent float64 `json:"km_from_current"`
+}
+
+type Reference struct {
+	Vec   []float64 `json:"vector"`
+	Label string    `json:"label"`
 }

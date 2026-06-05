@@ -3,9 +3,10 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"core-api/internal/modules/fraud"
-	"core-api/pkg"
+	pkg "core-api/pkg"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
@@ -16,16 +17,19 @@ func (s *Server) RegisterRoutes() http.Handler {
 		w.Write([]byte("OK"))
 	})
 
-	fmt.Println("Reading HKM index file")
-	ivfIndex, cleanup, err := pkg.ReadHKM("../resources/index.ivf")
-	if err != nil {
-		panic(err)
+	ivfPath := os.Getenv("IVF_PATH")
+	if ivfPath == "" {
+		ivfPath = "resources/index.ivf"
 	}
-	_ = cleanup
+	fmt.Printf("loading IVF index from %s\n", ivfPath)
 
-	fmt.Printf("Loaded HKM tree: depth=%d branch=%d nodes=%d buckets=%d\n",
-		ivfIndex.Depth, ivfIndex.Branch, len(ivfIndex.Centroids), len(ivfIndex.Buckets))
-	fraudHandler := fraud.NewHandler(ivfIndex)
+	idx, err := pkg.LoadIVF(ivfPath)
+	if err != nil {
+		panic(fmt.Sprintf("failed to load IVF index: %v", err))
+	}
+	fmt.Println("IVF index loaded")
+
+	fraudHandler := fraud.NewHandler(idx)
 	mux.HandleFunc("/fraud-score", fraudHandler.DetectFraud)
 
 	return mux

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sync"
 
-	"core-api/pkg"
+	pkg "core-api/pkg"
 )
 
 var fraudResponses = [6][]byte{
@@ -28,8 +28,8 @@ type Handler struct {
 	service *Service
 }
 
-func NewHandler(ivfIndex pkg.HKMTree) *Handler {
-	return &Handler{service: NewService(ivfIndex)}
+func NewHandler(idx *pkg.IVFIndex) *Handler {
+	return &Handler{service: NewService(idx)}
 }
 
 func (h *Handler) DetectFraud(w http.ResponseWriter, r *http.Request) {
@@ -42,13 +42,19 @@ func (h *Handler) DetectFraud(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fraudCount := h.service.DetectFraudRaw(body)
+	result := h.service.DetectFraudRaw(body)
 
 	*bufp = body[:0]
 	bodyPool.Put(bufp)
 
+	idx := int(result.Score * 5)
+	if idx > 5 {
+		idx = 5
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(fraudResponses[fraudCount])
+	w.Write(fraudResponses[idx])
 }
 
 func readAll(r io.Reader, buf []byte) ([]byte, error) {

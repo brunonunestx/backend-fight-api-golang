@@ -12,7 +12,8 @@ func GetHourOfDay(t time.Time) int {
 }
 
 func GetDayOfWeek(t time.Time) int {
-	return int(t.UTC().Weekday())
+	// Rule: Monday=0 ... Sunday=6. Go's Weekday(): Sunday=0, Monday=1 ... Saturday=6.
+	return (int(t.UTC().Weekday()) + 6) % 7
 }
 
 func CalcMinutesBetween(t1, t2 time.Time) float64 {

@@ -16,9 +16,9 @@ func main() {
 	runtime.GOMAXPROCS(1)
 
 	// Run GC less frequently — heap can grow to 4x the live set before collecting.
-	// Paired with GOMEMLIMIT to avoid OOM in 165MB containers.
+	// Paired with GOMEMLIMIT to avoid OOM in 150MB containers.
 	debug.SetGCPercent(400)
-	debug.SetMemoryLimit(140 * 1024 * 1024) // 140MB soft ceiling
+	debug.SetMemoryLimit(150 * 1024 * 1024)
 
 	server := server.New(":8080", nil)
 	fmt.Println("Starting server on :8080")

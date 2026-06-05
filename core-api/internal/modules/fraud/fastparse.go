@@ -7,7 +7,7 @@ import (
 	"core-api/pkg"
 )
 
-func FastBuildVector(body []byte) [VECTOR_SIZE]uint8 {
+func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 	customerStart := jsonSectionStart(body, "customer")
 	merchantStart := jsonSectionStart(body, "merchant")
 	lastTxStart := jsonSectionStart(body, "last_transaction")
@@ -37,8 +37,8 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]uint8 {
 		lastTx := body[lastTxStart:]
 		lastTimestamp := jsonStringBytes(lastTx, "timestamp")
 		lastTxTime := pkg.ParseTimestamp(string(lastTimestamp))
-		minutesSinceLastTx = pkg.CalcMinutesBetween(txTime, lastTxTime) / normalization["max_minutes"]
-		kmFromCurrent = jsonFloat(lastTx, "km_from_current") / normalization["max_km"]
+		minutesSinceLastTx = pkg.Clamp01(pkg.CalcMinutesBetween(lastTxTime, txTime) / normalization["max_minutes"])
+		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, "km_from_current") / normalization["max_km"])
 	}
 
 	isOnlineVal := 0.0
@@ -61,21 +61,26 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]uint8 {
 		float64(pkg.GetHourOfDay(txTime)) / 23.0,
 		float64(pkg.GetDayOfWeek(txTime)) / 6.0,
 		minutesSinceLastTx,
-		pkg.Clamp01(kmFromCurrent),
+		kmFromCurrent,
 		pkg.Clamp01(kmFromHome / normalization["max_km"]),
 		pkg.Clamp01(float64(txCount24h) / normalization["max_tx_count_24h"]),
 		isOnlineVal,
 		cardPresentVal,
 		unknownMerchant,
-		mccRiskScores[string(merchantMCC)],
+		mccRisk(merchantMCC),
 		pkg.Clamp01(merchantAvgAmount / normalization["max_merchant_avg_amount"]),
 	}
 
-	return pkg.QuantitizeVector(vector)
+	return vector
 }
 
-// jsonSectionStart returns the index of the first non-whitespace byte after "key": in b.
-// Returns -1 if key not found.
+func mccRisk(mcc []byte) float64 {
+	if v, ok := mccRiskScores[string(mcc)]; ok {
+		return v
+	}
+	return 0.5
+}
+
 func jsonSectionStart(b []byte, key string) int {
 	pattern := `"` + key + `":`
 	idx := bytes.Index(b, []byte(pattern))
@@ -130,8 +135,6 @@ func jsonBool(b []byte, key string) bool {
 	return start >= 0 && start < len(b) && b[start] == 't'
 }
 
-// jsonStringBytes returns the unquoted string value bytes for key in b.
-// The returned slice is a sub-slice of b — no allocation.
 func jsonStringBytes(b []byte, key string) []byte {
 	start := jsonSectionStart(b, key)
 	if start < 0 || start >= len(b) || b[start] != '"' {
@@ -145,8 +148,6 @@ func jsonStringBytes(b []byte, key string) []byte {
 	return b[start : start+end]
 }
 
-// jsonArrayBytes returns the raw bytes of the JSON array for key in b, including brackets.
-// The returned slice is a sub-slice of b — no allocation.
 func jsonArrayBytes(b []byte, key string) []byte {
 	start := jsonSectionStart(b, key)
 	if start < 0 || start >= len(b) || b[start] != '[' {
@@ -167,13 +168,11 @@ func jsonArrayBytes(b []byte, key string) []byte {
 	return b[start:]
 }
 
-// jsonArrayContains checks if value (unquoted bytes) appears as a quoted string
-// element in a JSON array. Scans without allocating.
 func jsonArrayContains(array, value []byte) bool {
 	if len(array) < 2 || len(value) == 0 {
 		return false
 	}
-	pos := 1 // skip '['
+	pos := 1
 	for pos < len(array)-1 {
 		if array[pos] != '"' {
 			pos++

@@ -1,27 +1,38 @@
 package pkg
 
+import "math"
+
+func l2F16vsF32(a [VECTOR_SIZE]uint16, b [VECTOR_SIZE]float32) float32 {
+	var sum float32
+	for i := 0; i < VECTOR_SIZE; i++ {
+		d := f16ToF32(a[i]) - b[i]
+		sum += d * d
+	}
+	return sum
+}
+
 type Record struct {
 	ID     uint32
-	Vector [VECTOR_SIZE]uint8
+	Vector [VECTOR_SIZE]uint16 // float16 (IEEE 754 half-precision)
 	Label  uint8
 }
 
 type Neighbor struct {
 	Record   Record
-	Distance uint32
+	Distance float32
 }
 
 // FindKNN finds the k nearest neighbors across one or more record buckets.
-// Accepts buckets directly to avoid concatenating slices before calling.
-func FindKNN(query [VECTOR_SIZE]uint8, k int, buckets ...[]Record) [5]Record {
+// Returns the neighbors and how many slots are filled (filled <= k).
+func FindKNN(query [VECTOR_SIZE]float32, k int, buckets ...[]Record) ([5]Record, int) {
 	var top [5]Neighbor
-	maxDist := ^uint32(0)
+	maxDist := float32(math.MaxFloat32)
 	maxIdx := 0
 	filled := 0
 
 	for _, records := range buckets {
 		for _, record := range records {
-			dist := CalcManhattanDistance(record.Vector, query)
+			dist := l2F16vsF32(record.Vector, query)
 			if filled < k {
 				top[filled] = Neighbor{record, dist}
 				filled++
@@ -51,5 +62,5 @@ func FindKNN(query [VECTOR_SIZE]uint8, k int, buckets ...[]Record) [5]Record {
 	for i := 0; i < filled; i++ {
 		result[i] = top[i].Record
 	}
-	return result
+	return result, filled
 }
