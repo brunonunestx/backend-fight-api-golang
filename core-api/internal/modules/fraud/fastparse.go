@@ -7,26 +7,47 @@ import (
 	"core-api/pkg"
 )
 
+// Patterns are allocated once at startup. Every request reuses the same slices,
+// so bytes.Index never triggers a heap allocation for the needle argument.
+var (
+	patCustomer        = []byte(`"customer":`)
+	patMerchant        = []byte(`"merchant":`)
+	patLastTransaction = []byte(`"last_transaction":`)
+	patAmount          = []byte(`"amount":`)
+	patInstallments    = []byte(`"installments":`)
+	patRequestedAt     = []byte(`"requested_at":`)
+	patAvgAmount       = []byte(`"avg_amount":`)
+	patTxCount24h      = []byte(`"tx_count_24h":`)
+	patKnownMerchants  = []byte(`"known_merchants":`)
+	patID              = []byte(`"id":`)
+	patMCC             = []byte(`"mcc":`)
+	patIsOnline        = []byte(`"is_online":`)
+	patCardPresent     = []byte(`"card_present":`)
+	patKmFromHome      = []byte(`"km_from_home":`)
+	patTimestamp       = []byte(`"timestamp":`)
+	patKmFromCurrent   = []byte(`"km_from_current":`)
+)
+
 func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
-	customerStart := jsonSectionStart(body, "customer")
-	merchantStart := jsonSectionStart(body, "merchant")
-	lastTxStart := jsonSectionStart(body, "last_transaction")
+	customerStart := jsonSectionStart(body, patCustomer)
+	merchantStart := jsonSectionStart(body, patMerchant)
+	lastTxStart := jsonSectionStart(body, patLastTransaction)
 
-	amount := jsonFloat(body, "amount")
-	installments := jsonFloat(body, "installments")
-	requestedAt := jsonStringBytes(body, "requested_at")
+	amount := jsonFloat(body, patAmount)
+	installments := jsonFloat(body, patInstallments)
+	requestedAt := jsonStringBytes(body, patRequestedAt)
 
-	customerAvgAmount := jsonFloat(body[customerStart:], "avg_amount")
-	txCount24h := jsonInt(body[customerStart:], "tx_count_24h")
-	knownMerchants := jsonArrayBytes(body[customerStart:], "known_merchants")
+	customerAvgAmount := jsonFloat(body[customerStart:], patAvgAmount)
+	txCount24h := jsonInt(body[customerStart:], patTxCount24h)
+	knownMerchants := jsonArrayBytes(body[customerStart:], patKnownMerchants)
 
-	merchantID := jsonStringBytes(body[merchantStart:], "id")
-	merchantMCC := jsonStringBytes(body[merchantStart:], "mcc")
-	merchantAvgAmount := jsonFloat(body[merchantStart:], "avg_amount")
+	merchantID := jsonStringBytes(body[merchantStart:], patID)
+	merchantMCC := jsonStringBytes(body[merchantStart:], patMCC)
+	merchantAvgAmount := jsonFloat(body[merchantStart:], patAvgAmount)
 
-	isOnline := jsonBool(body, "is_online")
-	cardPresent := jsonBool(body, "card_present")
-	kmFromHome := jsonFloat(body, "km_from_home")
+	isOnline := jsonBool(body, patIsOnline)
+	cardPresent := jsonBool(body, patCardPresent)
+	kmFromHome := jsonFloat(body, patKmFromHome)
 
 	txTime := pkg.ParseTimestamp(string(requestedAt))
 
@@ -35,10 +56,10 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 
 	if lastTxStart >= 0 && lastTxStart < len(body) && body[lastTxStart] == '{' {
 		lastTx := body[lastTxStart:]
-		lastTimestamp := jsonStringBytes(lastTx, "timestamp")
+		lastTimestamp := jsonStringBytes(lastTx, patTimestamp)
 		lastTxTime := pkg.ParseTimestamp(string(lastTimestamp))
 		minutesSinceLastTx = pkg.Clamp01(pkg.CalcMinutesBetween(lastTxTime, txTime) / normalization["max_minutes"])
-		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, "km_from_current") / normalization["max_km"])
+		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, patKmFromCurrent) / normalization["max_km"])
 	}
 
 	isOnlineVal := 0.0
@@ -81,21 +102,20 @@ func mccRisk(mcc []byte) float64 {
 	return 0.5
 }
 
-func jsonSectionStart(b []byte, key string) int {
-	pattern := `"` + key + `":`
-	idx := bytes.Index(b, []byte(pattern))
+func jsonSectionStart(b, pat []byte) int {
+	idx := bytes.Index(b, pat)
 	if idx < 0 {
 		return -1
 	}
-	pos := idx + len(pattern)
+	pos := idx + len(pat)
 	for pos < len(b) && (b[pos] == ' ' || b[pos] == '\t' || b[pos] == '\n' || b[pos] == '\r') {
 		pos++
 	}
 	return pos
 }
 
-func jsonFloat(b []byte, key string) float64 {
-	start := jsonSectionStart(b, key)
+func jsonFloat(b, pat []byte) float64 {
+	start := jsonSectionStart(b, pat)
 	if start < 0 {
 		return 0
 	}
@@ -114,8 +134,8 @@ func jsonFloat(b []byte, key string) float64 {
 	return v
 }
 
-func jsonInt(b []byte, key string) int {
-	start := jsonSectionStart(b, key)
+func jsonInt(b, pat []byte) int {
+	start := jsonSectionStart(b, pat)
 	if start < 0 {
 		return 0
 	}
@@ -130,13 +150,13 @@ func jsonInt(b []byte, key string) int {
 	return v
 }
 
-func jsonBool(b []byte, key string) bool {
-	start := jsonSectionStart(b, key)
+func jsonBool(b, pat []byte) bool {
+	start := jsonSectionStart(b, pat)
 	return start >= 0 && start < len(b) && b[start] == 't'
 }
 
-func jsonStringBytes(b []byte, key string) []byte {
-	start := jsonSectionStart(b, key)
+func jsonStringBytes(b, pat []byte) []byte {
+	start := jsonSectionStart(b, pat)
 	if start < 0 || start >= len(b) || b[start] != '"' {
 		return nil
 	}
@@ -148,8 +168,8 @@ func jsonStringBytes(b []byte, key string) []byte {
 	return b[start : start+end]
 }
 
-func jsonArrayBytes(b []byte, key string) []byte {
-	start := jsonSectionStart(b, key)
+func jsonArrayBytes(b, pat []byte) []byte {
+	start := jsonSectionStart(b, pat)
 	if start < 0 || start >= len(b) || b[start] != '[' {
 		return nil
 	}
