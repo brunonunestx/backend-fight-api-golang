@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sync"
 )
 
 const hivfMagic = "HIV2"
@@ -131,6 +132,26 @@ func readU32(r io.Reader) (uint32, error) {
 	return binary.LittleEndian.Uint32(b[:]), err
 }
 
+type searchBuf struct {
+	centHeap []ivfEntry
+	centIdx  []int
+	l2       []ivfEntry
+	topL2    []ivfEntry
+	buckets  [][]Record
+}
+
+var searchBufPool = sync.Pool{
+	New: func() any {
+		return &searchBuf{
+			centHeap: make([]ivfEntry, 0, 4),
+			centIdx:  make([]int, 0, 4),
+			l2:       make([]ivfEntry, 0, 128),
+			topL2:    make([]ivfEntry, 0, 16),
+			buckets:  make([][]Record, 0, 16),
+		}
+	},
+}
+
 // Search finds the k nearest neighbors using 2-level hierarchical lookup.
 // nprobe = number of L2 leaf buckets to visit.
 // Internally scans all nlist1 L1 centroids (cheap), then all L2 centroids within
@@ -141,23 +162,29 @@ func (idx *IVFIndex) Search(query [VECTOR_SIZE]float32, k, nprobe int) ([5]Recor
 		nprobeL1 = idx.nlist1
 	}
 
-	topL1 := idx.topNCentroids(query, idx.l1Centroids, nprobeL1)
+	buf := searchBufPool.Get().(*searchBuf)
 
-	l2Entries := make([]ivfEntry, 0, nprobeL1*idx.nlist2)
-	for _, l1 := range topL1 {
+	buf.centHeap, buf.centIdx = idx.topNCentroidsInto(query, idx.l1Centroids, nprobeL1, buf.centHeap, buf.centIdx)
+
+	buf.l2 = buf.l2[:0]
+	for _, l1 := range buf.centIdx {
 		base := l1 * idx.nlist2
 		for l2 := 0; l2 < idx.nlist2; l2++ {
 			d := centroidDist(query, &idx.l2Centroids[base+l2])
-			l2Entries = append(l2Entries, ivfEntry{base + l2, d})
+			buf.l2 = append(buf.l2, ivfEntry{base + l2, d})
 		}
 	}
 
-	topL2 := topNEntries(l2Entries, nprobe)
-	buckets := make([][]Record, len(topL2))
-	for i, e := range topL2 {
-		buckets[i] = idx.buckets[e.idx]
+	buf.topL2 = topNEntriesInto(buf.l2, nprobe, buf.topL2)
+
+	buf.buckets = buf.buckets[:0]
+	for _, e := range buf.topL2 {
+		buf.buckets = append(buf.buckets, idx.buckets[e.idx])
 	}
-	return FindKNN(query, k, buckets...)
+
+	result, filled := FindKNN(query, k, buf.buckets...)
+	searchBufPool.Put(buf)
+	return result, filled
 }
 
 type ivfEntry struct {
@@ -165,8 +192,9 @@ type ivfEntry struct {
 	dist float32
 }
 
-func (idx *IVFIndex) topNCentroids(query [VECTOR_SIZE]float32, centroids [][VECTOR_SIZE]float32, n int) []int {
-	top := make([]ivfEntry, 0, n)
+func (idx *IVFIndex) topNCentroidsInto(query [VECTOR_SIZE]float32, centroids [][VECTOR_SIZE]float32, n int, top []ivfEntry, result []int) ([]ivfEntry, []int) {
+	top = top[:0]
+	result = result[:0]
 	maxDist := float32(math.MaxFloat32)
 	maxPos := 0
 
@@ -183,18 +211,17 @@ func (idx *IVFIndex) topNCentroids(query [VECTOR_SIZE]float32, centroids [][VECT
 		}
 	}
 
-	result := make([]int, len(top))
-	for i, e := range top {
-		result[i] = e.idx
+	for _, e := range top {
+		result = append(result, e.idx)
 	}
-	return result
+	return top, result
 }
 
-func topNEntries(entries []ivfEntry, n int) []ivfEntry {
+func topNEntriesInto(entries []ivfEntry, n int, top []ivfEntry) []ivfEntry {
+	top = top[:0]
 	if n >= len(entries) {
-		return entries
+		return append(top, entries...)
 	}
-	top := make([]ivfEntry, 0, n)
 	maxDist := float32(math.MaxFloat32)
 	maxPos := 0
 

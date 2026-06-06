@@ -2,10 +2,19 @@ package pkg
 
 import "math"
 
+// f16ToF32Fast converts f16 to f32 without branches.
+// Denormals and ±zero get ≤2^-15 absolute error — negligible for L2 distance ranking.
+func f16ToF32Fast(h uint16) float32 {
+	sign := uint32(h>>15) << 31
+	exp := uint32((h >> 10) & 0x1F)
+	mant := uint32(h & 0x3FF)
+	return math.Float32frombits(sign | (exp+112)<<23 | mant<<13)
+}
+
 func l2F16vsF32(a [VECTOR_SIZE]uint16, b [VECTOR_SIZE]float32) float32 {
 	var sum float32
 	for i := 0; i < VECTOR_SIZE; i++ {
-		d := f16ToF32(a[i]) - b[i]
+		d := f16ToF32Fast(a[i]) - b[i]
 		sum += d * d
 	}
 	return sum

@@ -2,7 +2,6 @@ package fraud
 
 import (
 	"bytes"
-	"strconv"
 	"unsafe"
 
 	"core-api/pkg"
@@ -59,8 +58,8 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 		lastTx := body[lastTxStart:]
 		lastTimestamp := jsonStringBytes(lastTx, patTimestamp)
 		lastTxTime := pkg.ParseTimestamp(lastTimestamp)
-		minutesSinceLastTx = pkg.Clamp01(pkg.CalcMinutesBetween(lastTxTime, txTime) / normalization["max_minutes"])
-		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, patKmFromCurrent) / normalization["max_km"])
+		minutesSinceLastTx = pkg.Clamp01(pkg.CalcMinutesBetween(lastTxTime, txTime) / normMaxMinutes)
+		kmFromCurrent = pkg.Clamp01(jsonFloat(lastTx, patKmFromCurrent) / normMaxKm)
 	}
 
 	isOnlineVal := 0.0
@@ -77,30 +76,53 @@ func FastBuildVector(body []byte) [VECTOR_SIZE]float64 {
 	}
 
 	vector := [VECTOR_SIZE]float64{
-		pkg.Clamp01(amount / normalization["max_amount"]),
-		pkg.Clamp01(installments / normalization["max_installments"]),
-		pkg.Clamp01(amount / customerAvgAmount / normalization["amount_vs_avg_ratio"]),
+		pkg.Clamp01(amount / normMaxAmount),
+		pkg.Clamp01(installments / normMaxInstallments),
+		pkg.Clamp01(amount / customerAvgAmount / normAmountVsAvgRatio),
 		float64(pkg.GetHourOfDay(txTime)) / 23.0,
 		float64(pkg.GetDayOfWeek(txTime)) / 6.0,
 		minutesSinceLastTx,
 		kmFromCurrent,
-		pkg.Clamp01(kmFromHome / normalization["max_km"]),
-		pkg.Clamp01(float64(txCount24h) / normalization["max_tx_count_24h"]),
+		pkg.Clamp01(kmFromHome / normMaxKm),
+		pkg.Clamp01(float64(txCount24h) / normMaxTxCount24h),
 		isOnlineVal,
 		cardPresentVal,
 		unknownMerchant,
 		mccRisk(merchantMCC),
-		pkg.Clamp01(merchantAvgAmount / normalization["max_merchant_avg_amount"]),
+		pkg.Clamp01(merchantAvgAmount / normMaxMerchantAvgAmount),
 	}
 
 	return vector
 }
 
 func mccRisk(mcc []byte) float64 {
-	if v, ok := mccRiskScores[unsafe.String(unsafe.SliceData(mcc), len(mcc))]; ok {
-		return v
+	if len(mcc) != 4 {
+		return 0.5
 	}
-	return 0.5
+	switch unsafe.String(unsafe.SliceData(mcc), 4) {
+	case "5411":
+		return 0.15
+	case "5812":
+		return 0.30
+	case "5912":
+		return 0.20
+	case "5944":
+		return 0.45
+	case "7801":
+		return 0.80
+	case "7802":
+		return 0.75
+	case "7995":
+		return 0.85
+	case "4511":
+		return 0.35
+	case "5311":
+		return 0.25
+	case "5999":
+		return 0.50
+	default:
+		return 0.5
+	}
 }
 
 func jsonSectionStart(b, pat []byte) int {
@@ -131,8 +153,7 @@ func jsonFloat(b, pat []byte) float64 {
 	if end == start {
 		return 0
 	}
-	v, _ := strconv.ParseFloat(string(b[start:end]), 64)
-	return v
+	return parseFloatBytes(b[start:end])
 }
 
 func jsonInt(b, pat []byte) int {
@@ -147,7 +168,50 @@ func jsonInt(b, pat []byte) int {
 	if end == start {
 		return 0
 	}
-	v, _ := strconv.Atoi(string(b[start:end]))
+	return parseIntBytes(b[start:end])
+}
+
+func parseFloatBytes(b []byte) float64 {
+	i := 0
+	neg := i < len(b) && b[i] == '-'
+	if neg {
+		i++
+	}
+	var n int64
+	for i < len(b) && b[i] >= '0' && b[i] <= '9' {
+		n = n*10 + int64(b[i]-'0')
+		i++
+	}
+	result := float64(n)
+	if i < len(b) && b[i] == '.' {
+		i++
+		scale := 0.1
+		for i < len(b) && b[i] >= '0' && b[i] <= '9' {
+			result += float64(b[i]-'0') * scale
+			scale *= 0.1
+			i++
+		}
+	}
+	if neg {
+		return -result
+	}
+	return result
+}
+
+func parseIntBytes(b []byte) int {
+	i := 0
+	neg := i < len(b) && b[i] == '-'
+	if neg {
+		i++
+	}
+	v := 0
+	for i < len(b) {
+		v = v*10 + int(b[i]-'0')
+		i++
+	}
+	if neg {
+		return -v
+	}
 	return v
 }
 
